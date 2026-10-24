@@ -1,187 +1,83 @@
-import os
+# ====================================================
+# DASHBOARD INFLUENCER INSTAGRAM (DATA UPDATED)
+# ====================================================
+import numpy as np
 import pandas as pd
-import streamlit as st
-import plotly.express as px
+import matplotlib.pyplot as plt
+import seaborn as sns
 
-# Konfigurasi Halaman Streamlit
-st.set_page_config(
-    page_title="Dashboard Analisis UKT Mahasiswa", 
-    page_icon="📊", 
-    layout="wide"
-)
+# Setup tampilan visualisasi
+sns.set_theme(style="whitegrid")
+plt.rcParams['figure.figsize'] = (10, 6)
 
-# Judul Utama & Sumber Data
-st.title("📊 Dashboard Analisis Kelayakan Keringanan UKT Mahasiswa")
-st.markdown("**Sumber Dataset:** `klasifikasimhs.csv` (Data Internal Kemahasiswaan / Simulasi Mock Data)")
-st.markdown(
-    "Dashboard interaktif ini menyajikan KPI, visualisasi distribusi demografi, "
-    "serta filter dinamis untuk menganalisis data sosial-ekonomi dan kelayakan keringanan UKT."
-)
+# 1. Memuat Dataset
+file_path = 'top_insta_influencers_data[1].csv'
+df = pd.read_csv(file_path)
 
-@st.cache_data
-def generate_mock_data():
-    data = {
-        "Tempat Tinggal": [0, 0, 1, 1, 0, 1, 0, 1, 0, 1, 0, 1],
-        "Pekerjaan Orang Tua": [
-            "PNS", "TNI/POLRI", "Petani", "Nelayan", "Buruh", "Wiraswasta",
-            "Guru", "Ibu Rumah Tangga", "Petani", "Buruh", "PNS", "Wiraswasta"
-        ],
-        "Penghasilan Orang Tua": [
-            10000000, 8000000, 4000000, 3000000, 2000000, 6000000,
-            7000000, 3000000, 1500000, 2500000, 9000000, 5000000
-        ],
-        "Jumlah Tanggungan Orang Tua": [3, 2, 4, 5, 2, 1, 2, 4, 3, 2, 3, 2],
-        "Kendaraan": [1, 2, 0, 1, 1, 1, 1, 1, 0, 1, 2, 1],
-        "Kelayakan Keringanan UKT": [0, 1, 0, 0, 1, 1, 1, 0, 0, 1, 0, 1],
-    }
-    return pd.DataFrame(data)
+# 2. Fungsi Konversi String Notasi (k, m, b, %) ke Float
+def parse_number(val):
+    if pd.isna(val):
+        return np.nan
+    val = str(val).strip().lower().replace('%', '')
+    if val.endswith('b'):
+        return float(val[:-1]) * 1e9
+    elif val.endswith('m'):
+        return float(val[:-1]) * 1e6
+    elif val.endswith('k'):
+        return float(val[:-1]) * 1e3
+    try:
+        return float(val)
+    except:
+        return np.nan
 
-# 1. BACA & BERSIHKAN DATASET
-file_path = "klasifikasimhs.csv"
+# 3. Proses Cleaning Data
+df_clean = df.copy().drop_duplicates()
+df_clean['country'] = df_clean['country'].fillna('Unknown')
 
-if os.path.exists(file_path):
-    df_raw = pd.read_csv(file_path)
-else:
-    df_raw = generate_mock_data()
+cols_to_convert = ['posts', 'followers', 'avg_likes', '60_day_eng_rate', 'new_post_avg_like', 'total_likes']
+for col in cols_to_convert:
+    df_clean[col] = df_clean[col].apply(parse_number)
 
-# Cleaning data 
-df_clean = df_raw.copy()
-df_clean.columns = df_clean.columns.str.strip().str.replace(r"\s+", " ", regex=True)
+df_clean['60_day_eng_rate'] = df_clean['60_day_eng_rate'].fillna(df_clean['60_day_eng_rate'].median())
 
-kolom_target = "Kelayakan Keringanan UKT"
+# ====================================================
+# 4. KEY PERFORMANCE INDICATORS (KPI)
+# ====================================================
+total_influencers = len(df_clean)
+total_followers_sum = df_clean['followers'].sum()
+avg_influence = df_clean['influence_score'].mean()
+avg_engagement = df_clean['60_day_eng_rate'].mean()
 
-if df_clean[kolom_target].dtype == "object":
-    df_clean[kolom_target] = df_clean[kolom_target].astype(str).str.strip().replace({"1 1": "1"})
+print("========================================")
+print("       KEY PERFORMANCE INDICATORS       ")
+print("========================================")
+print(f"• Total Akun Influencer Teratas : {total_influencers:,} akun")
+print(f"• Total Akumulasi Followers     : {total_followers_sum:,.0f} pengikut")
+print(f"• Rata-rata Skor Pengaruh       : {avg_influence:.2f} / 100")
+print(f"• Rata-rata Engagement Rate     : {avg_engagement:.2f}%")
+print("========================================\n")
 
-df_clean[kolom_target] = pd.to_numeric(df_clean[kolom_target], errors="coerce")
-df_clean = df_clean.dropna(subset=[kolom_target])
-df_clean = df_clean.drop_duplicates().reset_index(drop=True)
+# ====================================================
+# 5. VISUALISASI DASHBOARD
+# ====================================================
+# Chart 1: Top 10 Negara Asal Influencer
+plt.figure(figsize=(10, 5))
+country_summary = df_clean.groupby('country').agg(
+    jumlah_influencer=('channel_info', 'count')
+).reset_index().sort_values(by='jumlah_influencer', ascending=False)
 
-kolom_numerik = [
-    "Tempat Tinggal", "Penghasilan Orang Tua", 
-    "Jumlah Tanggungan Orang Tua", "Kendaraan",
-]
-for col in kolom_numerik:
-    df_clean[col] = pd.to_numeric(df_clean[col], errors="coerce").astype("int64")
-df_clean[kolom_target] = df_clean[kolom_target].astype("int64")
-df_clean["Status UKT"] = df_clean[kolom_target].map({0: "Tidak Layak", 1: "Layak"})
+top_countries = country_summary.head(10)
+sns.barplot(data=top_countries, x='jumlah_influencer', y='country', palette='Blues_r')
+plt.title('Top 10 Negara dengan Influencer Terbanyak', fontsize=14, fontweight='bold')
+plt.xlabel('Jumlah Influencer')
+plt.ylabel('Negara')
+plt.tight_layout()
+plt.show()
 
-# 2. FILTER SIDEBAR
-st.sidebar.header("🎛️ Filter Data")
-pekerjaan_filter = st.sidebar.multiselect(
-    "Pilih Pekerjaan Orang Tua:",
-    options=df_clean["Pekerjaan Orang Tua"].unique(),
-    default=df_clean["Pekerjaan Orang Tua"].unique()
-)
-
-status_filter = st.sidebar.multiselect(
-    "Pilih Status UKT:",
-    options=df_clean["Status UKT"].unique(),
-    default=df_clean["Status UKT"].unique()
-)
-
-# Terapkan Filter
-df_filtered = df_clean[
-    (df_clean["Pekerjaan Orang Tua"].isin(pekerjaan_filter)) &
-    (df_clean["Status UKT"].isin(status_filter))
-]
-
-# 3. INDIKATOR KINERJA UTAMA (KPI)
-st.subheader("📈 Key Performance Indicators (KPI)")
-total_mhs = len(df_filtered)
-total_layak = df_filtered[df_filtered["Status UKT"] == "Layak"].shape[0]
-persentase_layak = (total_layak / total_mhs) * 100 if total_mhs > 0 else 0
-rata_penghasilan = df_filtered["Penghasilan Orang Tua"].mean() if total_mhs > 0 else 0
-rata_tanggungan = df_filtered["Jumlah Tanggungan Orang Tua"].mean() if total_mhs > 0 else 0
-
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("Total Mahasiswa (Terfilter)", total_mhs)
-col2.metric("Layak Keringanan UKT", f"{total_layak} ({persentase_layak:.1f}%)")
-col3.metric("Rata-rata Penghasilan", f"Rp {rata_penghasilan:,.0f}")
-col4.metric("Rata-rata Tanggungan", f"{rata_tanggungan:.1f} Orang")
-
-st.markdown("---")
-
-# 4. TAB TABEL DATA
-st.subheader("🔍 Pratinjau Data")
-tab1, tab2 = st.tabs(["Data Bersih & Terfilter", "Data Mentah (Original)"])
-
-with tab1:
-    st.dataframe(df_filtered, use_container_width=True)
-with tab2:
-    st.dataframe(df_raw, use_container_width=True)
-
-st.markdown("---")
-
-# 5. VISUALISASI INTERAKTIF DENGAN PLOTLY
-st.subheader("📊 Visualisasi Interaktif")
-
-if total_mhs > 0:
-    col_chart1, col_chart2 = st.columns(2)
-
-    with col_chart1:
-        fig1 = px.pie(
-            df_filtered, 
-            names="Status UKT", 
-            title="Distribusi Kelayakan Keringanan UKT",
-            color="Status UKT",
-            color_discrete_map={"Layak": "#00CC96", "Tidak Layak": "#EF553B"}
-        )
-        fig1.update_traces(textposition='inside', textinfo='percent+label')
-        st.plotly_chart(fig1, use_container_width=True)
-
-    with col_chart2:
-        pekerjaan_counts = df_filtered["Pekerjaan Orang Tua"].value_counts().reset_index()
-        pekerjaan_counts.columns = ["Pekerjaan", "Jumlah"]
-        fig2 = px.bar(
-            pekerjaan_counts, 
-            y="Pekerjaan", 
-            x="Jumlah", 
-            orientation='h',
-            title="Distribusi Pekerjaan Orang Tua",
-            color="Jumlah",
-            color_continuous_scale="Viridis"
-        )
-        fig2.update_layout(yaxis={'categoryorder':'total ascending'})
-        st.plotly_chart(fig2, use_container_width=True)
-
-    col_chart3, col_chart4 = st.columns(2)
-
-    with col_chart3:
-        fig3 = px.box(
-            df_filtered, 
-            x="Status UKT", 
-            y="Penghasilan Orang Tua", 
-            color="Status UKT",
-            title="Penghasilan Orang Tua vs Kelayakan",
-            color_discrete_map={"Layak": "#00CC96", "Tidak Layak": "#EF553B"}
-        )
-        st.plotly_chart(fig3, use_container_width=True)
-
-    with col_chart4:
-        rata_tanggungan_df = df_filtered.groupby("Status UKT")["Jumlah Tanggungan Orang Tua"].mean().reset_index()
-        fig4 = px.bar(
-            rata_tanggungan_df, 
-            x="Status UKT", 
-            y="Jumlah Tanggungan Orang Tua",
-            color="Status UKT",
-            title="Rata-rata Tanggungan vs Kelayakan",
-            color_discrete_map={"Layak": "#00CC96", "Tidak Layak": "#EF553B"}
-        )
-        st.plotly_chart(fig4, use_container_width=True)
-else:
-    st.warning("⚠️ Tidak ada data yang sesuai dengan filter yang dipilih.")
-
-st.markdown("---")
-
-# 6. INSIGHT & REKOMENDASI
-st.subheader("💡 Insight & Rekomendasi")
-st.markdown("""
-**3 Insight Utama:**
-1. Mahasiswa yang layak menerima keringanan UKT sebagian besar berasal dari keluarga dengan latar belakang pekerjaan non-formal seperti petani dan buruh.
-2. Terdapat batas konsisten di mana mahasiswa dari keluarga dengan penghasilan di bawah rata-rata mendominasi status "Layak".
-3. Jumlah tanggungan yang lebih tinggi memperbesar probabilitas mahasiswa untuk masuk dalam kategori penerima keringanan UKT.
-
-**Rekomendasi:**
-Universitas disarankan untuk membuat jalur afirmasi otomatis bagi pendaftar yang memiliki kombinasi penghasilan di bawah rata-rata (misal < Rp 4 juta) dengan jumlah tanggungan lebih dari 3 orang, guna mempercepat proses penyaluran keringanan UKT tepat sasaran.
-""")
+# Chart 2: Matriks Korelasi Fitur Numerik
+plt.figure(figsize=(8, 6))
+numeric_df = df_clean.select_dtypes(include=[np.number])
+sns.heatmap(numeric_df.corr(), annot=True, cmap='coolwarm', fmt='.2f', linewidths=0.5)
+plt.title('Matriks Korelasi Antar Fitur Numerik', fontsize=14, fontweight='bold')
+plt.tight_layout()
+plt.show()
